@@ -2,382 +2,193 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * @brief          : LED Kontrol ve Flash Depolama Ödevi
   ******************************************************************************
   */
 /* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
+
 #include "main.h"
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
+/* Kullanıcı Tanımlamaları ---------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define FLASH_VERI_ADRESI  0x0800FC00  // Verinin saklanacağı Flash adresi
 /* USER CODE END PD */
 
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
+/* Değişkenler ---------------------------------------------------------------*/
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-#define FLASH_ADDRESS 0x0801FC00
-
-volatile uint8_t blink_count = 4;
-volatile uint8_t led_state = 0;
-volatile uint8_t pause_mode = 0;
-volatile uint8_t pause_counter = 0;
-
-volatile uint32_t button_press_time = 0;
-volatile uint8_t button_last_state = 0;
-
+uint32_t led_tekrar_sayisi = 4;        // Kaç kez yanıp söneceği (4-7 arası)
+volatile uint32_t zaman_sayaci = 0;    // Timer kesmelerini sayan değişken
+volatile uint8_t calisma_durumu = 1;   // 1: Yanıp sönme modu, 0: 5sn bekleme modu
+volatile uint32_t anlik_blink = 0;     // O anki döngüde kaçıncı kez yandığı
+uint32_t son_buton_zamani = 0;         // Debounce (ark söndürme) için
 /* USER CODE END PV */
 
-/* Private function prototypes -----------------------------------------------*/
+/* Fonksiyon Prototipleri ----------------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
-/* USER CODE BEGIN PFP */
+static void Flash_Veri_Yaz(uint32_t veri);
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void Flash_Write(uint8_t value)
-{
+// Flash belleğe veri yazma fonksiyonu
+static void Flash_Veri_Yaz(uint32_t veri) {
     HAL_FLASH_Unlock();
-
-    FLASH_EraseInitTypeDef erase;
-    uint32_t pageError;
-
-    erase.TypeErase = FLASH_TYPEERASE_PAGES;
-    erase.PageAddress = FLASH_ADDRESS;
-    erase.NbPages = 1;
-
-    HAL_FLASHEx_Erase(&erase, &pageError);
-
-    HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD,
-                      FLASH_ADDRESS,
-                      value);
-
+    FLASH_EraseInitTypeDef erase_struct = {0};
+    uint32_t sayfa_hatasi;
+    
+    erase_struct.TypeErase   = FLASH_TYPEERASE_PAGES;
+    erase_struct.PageAddress = FLASH_VERI_ADRESI;
+    erase_struct.NbPages     = 1;
+    
+    HAL_FLASHEx_Erase(&erase_struct, &sayfa_hatasi);
+    HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, FLASH_VERI_ADRESI, veri);
     HAL_FLASH_Lock();
 }
-
-uint8_t Flash_Read(void)
-{
-    return *(volatile uint16_t*)FLASH_ADDRESS;
-}
-
 /* USER CODE END 0 */
 
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+int main(void) {
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM2_Init();
-  /* USER CODE BEGIN 2 */
-  uint8_t flash_value = Flash_Read();
 
-if(flash_value > 7)
-{
-    blink_count = 4;
-    Flash_Write(4);
-}
-else
-{
-    blink_count = flash_value;
-}
+  /* --- f Şıkkı: Flash Kontrolü --- */
+  uint32_t okunan_deger = *(__IO uint32_t *)FLASH_VERI_ADRESI;
 
-HAL_GPIO_WritePin(GPIOA,
-                  GPIO_PIN_1,
-                  GPIO_PIN_RESET);
-
-HAL_TIM_Base_Start_IT(&htim2);
-
-  /* USER CODE END 2 */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
-}
-
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
+  if (okunan_deger < 4 || okunan_deger > 7) {
+      led_tekrar_sayisi = 4;
+      Flash_Veri_Yaz(4);
+  } else {
+      led_tekrar_sayisi = okunan_deger;
   }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  /* --- g Şıkkı: Fabrika Ayarları (3sn Basılı Tutma) --- */
+  // Başlangıçta butona 3sn basılırsa flash 4 yapılır
+  uint32_t baslangic_ani = HAL_GetTick();
+  while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) {
+      if (HAL_GetTick() - baslangic_ani >= 3000) {
+          led_tekrar_sayisi = 4;
+          Flash_Veri_Yaz(4);
+          // Buton bırakılana kadar bekle
+          while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET);
+          break;
+      }
+  }
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
+  // Timer Başlat
+  HAL_TIM_Base_Start_IT(&htim2);
+
+  while (1) {
+    /* --- d Şıkkı: Buton Kontrolü --- */
+    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) {
+        if (HAL_GetTick() - son_buton_zamani > 300) { // Debounce
+            son_buton_zamani = HAL_GetTick();
+
+            // Butonun bırakılmasını bekle (Mekanik gürültüyü önler)
+            while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET);
+
+            // Sayı artırma mantığı
+            if (led_tekrar_sayisi >= 7) led_tekrar_sayisi = 4;
+            else led_tekrar_sayisi++;
+
+            // Değişimi kaydet (e şıkkı)
+            Flash_Veri_Yaz(led_tekrar_sayisi);
+
+            // Döngüyü baştan başlatmak için parametreleri sıfırla
+            zaman_sayaci = 0;
+            anlik_blink = 0;
+            calisma_durumu = 1;
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        }
+    }
   }
 }
 
-/**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
+/* --- a, b ve c Şıkları: Timer Kesme Fonksiyonu --- */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM2) {
+        if (calisma_durumu) { // LED Yanıp Sönme Periyodu
+            zaman_sayaci++;
+            
+            // Tek sayılarda LED YANAR (PC13 ters mantıktır: RESET=ON)
+            if (zaman_sayaci % 2 != 0) {
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            } else {
+                // Çift sayılarda LED SÖNER (SET=OFF)
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+                anlik_blink++;
+            }
 
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 7199;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
+            // Belirlenen sayıya ulaşıldıysa
+            if (anlik_blink >= led_tekrar_sayisi) {
+                calisma_durumu = 0; // 5 saniyelik bekleme moduna geç
+                zaman_sayaci = 0;
+                anlik_blink = 0;
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); // Sönük kal
+            }
+        } else { // 5 Saniyelik Bekleme Periyodu
+            zaman_sayaci++;
+            if (zaman_sayaci >= 5) {
+                calisma_durumu = 1; // Tekrar yanmaya başla
+                zaman_sayaci = 0;
+                anlik_blink = 0;
+            }
+        }
+    }
 }
 
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
+/* --- h Şıkkı: GPIO Yapılandırması --- */
+static void MX_GPIO_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  // PC13 LED (Lojik 1 ile başlar - Kapalı)
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 
-  /*Configure GPIO pin Output Level */
+  // PA1 Pinini Yapılandır (Lojik 0 ve sabit kalacak)
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PC13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA1 */
   GPIO_InitStruct.Pin = GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  // PA0 Buton (Pull-up)
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* USER CODE END MX_GPIO_Init_2 */
+  // PC13 LED
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 }
 
-/* USER CODE BEGIN 4 */
+/* Timer Ayarları: 72MHz için 1sn periyot */
+static void MX_TIM2_Init(void) {
+  htim2.Instance = TIM2;
+  // 72.000.000 / (7199+1) = 10.000 Hz
+  htim2.Init.Prescaler = 7199;
+  // 10.000 / (9999+1) = 1 Hz (1 Saniye)
+  htim2.Init.Period = 9999;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  HAL_TIM_Base_Init(&htim2);
+  
+  HAL_NVIC_SetPriority(TIM2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(TIM2_IRQn);
+}
 
-/* USER CODE END 4 */
+void SystemClock_Config(void) {
+  // Standart 72MHz HSE yapılandırması buraya gelecek (CubeMX oluşturur)
+}
 
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+void Error_Handler(void) {
   __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
-}
-#ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
-}
-#endif /* USE_FULL_ASSERT */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if(htim->Instance == TIM2)
-    {
-        if(!pause_mode)
-        {
-            HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
-            led_state++;
-
-            if(led_state >= blink_count * 2)
-            {
-                HAL_GPIO_WritePin(GPIOC,
-                                  GPIO_PIN_13,
-                                  GPIO_PIN_SET);
-
-                pause_mode = 1;
-                pause_counter = 0;
-                led_state = 0;
-            }
-        }
-        else
-        {
-            pause_counter++;
-
-            if(pause_counter >= 5)
-            {
-                pause_mode = 0;
-            }
-        }
-
-        GPIO_PinState state =
-            HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
-
-        if(state == GPIO_PIN_SET &&
-           button_last_state == 0)
-        {
-            button_press_time = HAL_GetTick();
-        }
-
-        if(state == GPIO_PIN_RESET &&
-           button_last_state == 1)
-        {
-            uint32_t duration =
-                HAL_GetTick() - button_press_time;
-
-            if(duration >= 3000)
-            {
-                blink_count = 4;
-                Flash_Write(4);
-            }
-            else
-            {
-                if(blink_count < 7)
-                    blink_count++;
-                else
-                    blink_count = 4;
-
-                Flash_Write(blink_count);
-            }
-        }
-
-        button_last_state = state;
-    }
+  while (1);
 }
